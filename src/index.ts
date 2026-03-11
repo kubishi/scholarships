@@ -119,38 +119,37 @@ function getHTML(): string {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --crimson: #AB0C2F;
-    --crimson-dark: #8a0a26;
     --blue: #0076A5;
     --blue-dark: #005f85;
+    --blue-light: #e8f4f8;
     --light-gray: #C8C9C7;
     --dark-gray: #888B8D;
-    --black: #000000;
+    --text: #222;
+    --text-light: #555;
     --white: #ffffff;
-    --bg: #f5f5f4;
+    --bg: #f7f8f9;
     --card-bg: #ffffff;
-    --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
-    --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06);
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-md: 0 3px 8px rgba(0,0,0,0.1);
   }
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg);
-    color: var(--black);
+    color: var(--text);
     line-height: 1.6;
     min-height: 100vh;
   }
 
   header {
-    background: var(--crimson);
-    color: var(--white);
-    box-shadow: var(--shadow-md);
+    background: var(--white);
+    border-bottom: 2px solid var(--blue);
   }
 
   .header-top {
     max-width: 960px;
     margin: 0 auto;
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.5rem;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -168,16 +167,16 @@ function getHTML(): string {
   }
 
   .header-titles h1 {
-    font-size: 1.35rem;
+    font-size: 1.25rem;
     font-weight: 700;
-    letter-spacing: 0.01em;
+    color: var(--blue-dark);
     line-height: 1.2;
   }
 
   .header-titles p {
-    font-size: 0.85rem;
-    opacity: 0.9;
-    margin-top: 0.15rem;
+    font-size: 0.83rem;
+    color: var(--text-light);
+    margin-top: 0.1rem;
   }
 
   main {
@@ -189,121 +188,111 @@ function getHTML(): string {
   .intro {
     text-align: center;
     margin-bottom: 1.5rem;
-    color: #444;
-    font-size: 0.95rem;
-  }
-
-  .intro a {
-    color: var(--blue);
+    color: var(--text-light);
+    font-size: 0.9rem;
   }
 
   .scholarship-card {
     background: var(--card-bg);
-    border-radius: 10px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 0.75rem;
     box-shadow: var(--shadow);
-    border-left: 4px solid var(--crimson);
-    transition: box-shadow 0.2s;
+    border-left: 3px solid var(--blue);
   }
 
-  .scholarship-card:hover { box-shadow: var(--shadow-md); }
-
   .scholarship-card.past-deadline {
-    opacity: 0.55;
-    border-left-color: var(--dark-gray);
+    opacity: 0.5;
+    border-left-color: var(--light-gray);
   }
 
   .scholarship-card.past-deadline .card-header h2 { color: var(--dark-gray); }
   .scholarship-card.past-deadline .deadline { color: var(--dark-gray) !important; }
   .scholarship-card.past-deadline .btn-apply { background: var(--dark-gray); }
 
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
-    margin-bottom: 0.5rem;
-  }
-
   .card-header h2 {
-    font-size: 1.15rem;
-    color: var(--crimson);
+    font-size: 1.05rem;
+    color: var(--blue-dark);
     font-weight: 600;
+    margin-bottom: 0.35rem;
   }
 
   .card-meta {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    margin-bottom: 0.6rem;
-    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.82rem;
   }
 
   .card-meta span {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    color: #555;
+    gap: 0.25rem;
+    color: var(--text-light);
   }
 
-  .card-meta .deadline { color: var(--crimson-dark); font-weight: 600; }
-  .card-meta .amount { color: var(--blue-dark); font-weight: 600; }
+  .card-meta .deadline { color: var(--blue-dark); font-weight: 600; }
+  .card-meta .amount { color: var(--text-light); font-weight: 600; }
 
   .card-desc {
-    color: #444;
-    font-size: 0.9rem;
-    margin-bottom: 0.75rem;
+    color: var(--text-light);
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
   }
 
   .card-desc:last-child { margin-bottom: 0; }
-
-  .card-actions {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
 
   .btn-apply {
     display: inline-block;
     background: var(--blue);
     color: var(--white);
-    padding: 0.45rem 1rem;
-    border-radius: 6px;
+    padding: 0.35rem 0.9rem;
+    border-radius: 5px;
     text-decoration: none;
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     font-weight: 500;
     transition: background 0.2s;
   }
 
   .btn-apply:hover { background: var(--blue-dark); }
 
+  .hub-banner {
+    background: var(--blue-light);
+    border: 1px solid #c4dfe8;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.88rem;
+    color: var(--text);
+  }
+
+  .hub-banner a {
+    color: var(--blue);
+    font-weight: 600;
+  }
+
   footer {
     text-align: center;
-    padding: 2rem 1rem;
+    padding: 1.5rem 1rem;
     color: var(--dark-gray);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
   }
 
-  .loading {
-    text-align: center;
-    padding: 3rem;
-    color: var(--dark-gray);
-  }
-
-  .empty-state {
+  .loading, .empty-state {
     text-align: center;
     padding: 3rem;
     color: var(--dark-gray);
   }
 
   @media (max-width: 600px) {
-    .header-top { padding: 1rem; flex-wrap: wrap; }
-    .header-titles h1 { font-size: 1.1rem; }
+    .header-top { padding: 0.75rem 1rem; }
+    .header-titles h1 { font-size: 1.05rem; }
     .header-brand img { height: 40px; }
     main { padding: 1rem; }
-    .scholarship-card { padding: 1.15rem; }
-    .card-meta { flex-direction: column; gap: 0.25rem; }
+    .scholarship-card { padding: 1rem; }
+    .card-meta { flex-direction: column; gap: 0.2rem; }
   }
 </style>
 </head>
@@ -322,18 +311,21 @@ function getHTML(): string {
 
 <main>
   <p class="intro">
-    Below is a curated list of scholarships available to American Indian, Alaska Native, and Indigenous students.
-    Click &ldquo;Apply&rdquo; to visit each scholarship&rsquo;s application page.<br>
-    <a href="https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit" target="_blank" rel="noopener">Suggest an edit</a>
+    A curated list of scholarships for American Indian, Alaska Native, and Indigenous students.
   </p>
 
   <div id="scholarships">
     <div class="loading">Loading scholarships...</div>
   </div>
+
+  <div class="hub-banner">
+    Visit the <a href="https://www.lmu.edu/dei/indigenous/" target="_blank" rel="noopener">LMU Indigenous Hub</a>
+    to join our mailing list, find contact info, and see more events and opportunities at LMU.
+  </div>
 </main>
 
 <footer>
-  Loyola Marymount University &mdash; Indigenous Scholarship Portal
+  Loyola Marymount University
 </footer>
 
 <script>
