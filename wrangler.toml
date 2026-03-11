@@ -5,4 +5,4 @@ compatibility_date = "2025-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "scholarships-db"
-database_id = "placeholder"
+database_id = "15cb5aae-f7d2-4103-a26d-a43dcc062c04"
