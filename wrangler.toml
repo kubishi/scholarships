@@ -1,0 +1,8 @@
+name = "lmu-indigenous-scholarships"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "scholarships-db"
+database_id = "placeholder"
