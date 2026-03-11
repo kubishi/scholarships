@@ -217,6 +217,15 @@ function getHTML(): string {
 
   .scholarship-card:hover { box-shadow: var(--shadow-md); }
 
+  .scholarship-card.past-deadline {
+    opacity: 0.55;
+    border-left-color: var(--dark-gray);
+  }
+
+  .scholarship-card.past-deadline .card-header h2 { color: var(--dark-gray); }
+  .scholarship-card.past-deadline .deadline { color: var(--dark-gray) !important; }
+  .scholarship-card.past-deadline .btn-apply { background: var(--dark-gray); }
+
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -458,7 +467,7 @@ function getHTML(): string {
 <header>
   <div class="header-top">
     <div class="header-brand">
-      <img src="https://brand.lmu.edu/media/marcomm/brand/identitystandards/marks-primary/loyola-marymount-university.png" alt="LMU" crossorigin="anonymous" />
+      <img src="/assets/lmu-logo.png" alt="LMU" />
       <div class="header-titles">
         <h1>Indigenous Scholarship Opportunities</h1>
         <p>Resources for Native &amp; Indigenous Students at LMU</p>
@@ -554,8 +563,8 @@ function render() {
     el.innerHTML = '<div class="empty-state">No scholarships listed yet.</div>';
     return;
   }
-  el.innerHTML = scholarships.map(s => \`
-    <div class="scholarship-card">
+  el.innerHTML = sortScholarships(scholarships).map(s => \`
+    <div class="scholarship-card\${isPast(s.deadline) ? ' past-deadline' : ''}">
       <div class="card-header">
         <h2>\${esc(s.name)}</h2>
       </div>
@@ -580,6 +589,41 @@ function esc(str) {
   const d = document.createElement('div');
   d.textContent = str;
   return d.innerHTML;
+}
+
+function parseDeadline(dl) {
+  if (!dl || dl.toLowerCase() === 'varies') return null;
+  // Try to extract a date from strings like "March 31, 2026" or "May 31, 2026 (rolling after...)"
+  const match = dl.match(/([A-Za-z]+ \\d{1,2},? \\d{4})/);
+  if (match) {
+    const d = new Date(match[1]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+function isPast(dl) {
+  const d = parseDeadline(dl);
+  if (!d) return false;
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  return d < today;
+}
+
+function sortScholarships(list) {
+  return list.slice().sort((a, b) => {
+    const da = parseDeadline(a.deadline);
+    const db = parseDeadline(b.deadline);
+    const pa = isPast(a.deadline);
+    const pb = isPast(b.deadline);
+    // Past deadlines go to the bottom
+    if (pa !== pb) return pa ? 1 : -1;
+    // Nulls (Varies) go after dated items
+    if (da && !db) return -1;
+    if (!da && db) return 1;
+    if (!da && !db) return 0;
+    return da - db;
+  });
 }
 
 function toggleAdmin() {
