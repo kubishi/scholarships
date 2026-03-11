@@ -1,103 +1,110 @@
-export interface Env {
-  DB: D1Database;
-  ADMIN_PASSWORD: string;
-}
+const SHEET_ID = "1AkIGIxjUaDhnDb582v3RMOBdys69BSVKNuqaSkBRRTU";
+const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+const CACHE_TTL = 300; // 5 minutes
 
 interface Scholarship {
-  id: number;
   name: string;
   deadline: string;
   amount: string;
-  description: string;
+  eligibility: string;
+  notes: string;
   apply_url: string;
-  created_at: string;
-  updated_at: string;
 }
 
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+function parseCSV(csv: string): string[][] {
+  const rows: string[][] = [];
+  let current = "";
+  let inQuotes = false;
+  let row: string[] = [];
 
-function checkAuth(request: Request, env: Env): boolean {
-  const auth = request.headers.get("Authorization");
-  if (!auth) return false;
-  const password = auth.replace("Bearer ", "");
-  return password === env.ADMIN_PASSWORD;
-}
-
-async function handleAPI(request: Request, env: Env, path: string): Promise<Response> {
-  // GET /api/scholarships
-  if (path === "/api/scholarships" && request.method === "GET") {
-    const { results } = await env.DB.prepare(
-      "SELECT * FROM scholarships ORDER BY deadline ASC, name ASC"
-    ).all<Scholarship>();
-    return jsonResponse(results);
-  }
-
-  // POST /api/auth - verify password
-  if (path === "/api/auth" && request.method === "POST") {
-    const { password } = await request.json<{ password: string }>();
-    if (password === env.ADMIN_PASSWORD) {
-      return jsonResponse({ ok: true });
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (inQuotes) {
+      if (ch === '"' && csv[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        row.push(current);
+        current = "";
+      } else if (ch === "\n" || (ch === "\r" && csv[i + 1] === "\n")) {
+        row.push(current);
+        current = "";
+        rows.push(row);
+        row = [];
+        if (ch === "\r") i++;
+      } else {
+        current += ch;
+      }
     }
-    return jsonResponse({ ok: false, error: "Invalid password" }, 401);
   }
-
-  // All other API routes require auth
-  if (!checkAuth(request, env)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
+  if (current || row.length > 0) {
+    row.push(current);
+    rows.push(row);
   }
+  return rows;
+}
 
-  // POST /api/scholarships
-  if (path === "/api/scholarships" && request.method === "POST") {
-    const body = await request.json<Partial<Scholarship>>();
-    const result = await env.DB.prepare(
-      "INSERT INTO scholarships (name, deadline, amount, description, apply_url) VALUES (?, ?, ?, ?, ?)"
-    )
-      .bind(body.name, body.deadline, body.amount, body.description, body.apply_url)
-      .run();
-    return jsonResponse({ ok: true, id: result.meta.last_row_id }, 201);
-  }
+function parseSheet(csv: string): Scholarship[] {
+  const rows = parseCSV(csv);
+  if (rows.length < 2) return [];
+  // Skip header row
+  return rows.slice(1)
+    .map((row) => ({
+      name: (row[0] || "").trim(),
+      deadline: (row[1] || "").trim(),
+      amount: (row[2] || "").trim(),
+      eligibility: (row[3] || "").trim(),
+      notes: (row[4] || "").trim(),
+      apply_url: (row[5] || "").trim(),
+    }))
+    .filter((s) => s.name.length > 0);
+}
 
-  // PUT /api/scholarships/:id
-  const putMatch = path.match(/^\/api\/scholarships\/(\d+)$/);
-  if (putMatch && request.method === "PUT") {
-    const id = parseInt(putMatch[1]);
-    const body = await request.json<Partial<Scholarship>>();
-    await env.DB.prepare(
-      "UPDATE scholarships SET name = ?, deadline = ?, amount = ?, description = ?, apply_url = ?, updated_at = datetime('now') WHERE id = ?"
-    )
-      .bind(body.name, body.deadline, body.amount, body.description, body.apply_url, id)
-      .run();
-    return jsonResponse({ ok: true });
-  }
-
-  // DELETE /api/scholarships/:id
-  const deleteMatch = path.match(/^\/api\/scholarships\/(\d+)$/);
-  if (deleteMatch && request.method === "DELETE") {
-    const id = parseInt(deleteMatch[1]);
-    await env.DB.prepare("DELETE FROM scholarships WHERE id = ?").bind(id).run();
-    return jsonResponse({ ok: true });
-  }
-
-  return jsonResponse({ error: "Not found" }, 404);
+async function fetchScholarships(): Promise<Scholarship[]> {
+  const res = await fetch(CSV_URL, {
+    cf: { cacheTtl: CACHE_TTL, cacheEverything: true },
+  });
+  if (!res.ok) throw new Error("Failed to fetch sheet");
+  const csv = await res.text();
+  return parseSheet(csv);
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname.startsWith("/api/")) {
-      return handleAPI(request, env, url.pathname);
+    if (url.pathname === "/api/scholarships") {
+      try {
+        const scholarships = await fetchScholarships();
+        return new Response(JSON.stringify(scholarships), {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": `public, max-age=${CACHE_TTL}`,
+          },
+        });
+      } catch {
+        return new Response(JSON.stringify({ error: "Failed to load scholarships" }), {
+          status: 502,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
-    // Serve the frontend
-    return new Response(getHTML(), {
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-    });
+    if (url.pathname === "/" || !url.pathname.startsWith("/assets/")) {
+      return new Response(getHTML(), {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    return new Response("Not found", { status: 404 });
   },
 };
 
@@ -134,11 +141,9 @@ function getHTML(): string {
     min-height: 100vh;
   }
 
-  /* Header */
   header {
     background: var(--crimson);
     color: var(--white);
-    padding: 0;
     box-shadow: var(--shadow-md);
   }
 
@@ -148,7 +153,6 @@ function getHTML(): string {
     padding: 1.25rem 1.5rem;
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 1rem;
   }
 
@@ -176,21 +180,6 @@ function getHTML(): string {
     margin-top: 0.15rem;
   }
 
-  .admin-toggle {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.3);
-    color: var(--white);
-    padding: 0.4rem 0.85rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    transition: background 0.2s;
-    white-space: nowrap;
-  }
-
-  .admin-toggle:hover { background: rgba(255,255,255,0.25); }
-
-  /* Main */
   main {
     max-width: 960px;
     margin: 0 auto;
@@ -204,7 +193,10 @@ function getHTML(): string {
     font-size: 0.95rem;
   }
 
-  /* Cards */
+  .intro a {
+    color: var(--blue);
+  }
+
   .scholarship-card {
     background: var(--card-bg);
     border-radius: 10px;
@@ -264,11 +256,12 @@ function getHTML(): string {
     margin-bottom: 0.75rem;
   }
 
+  .card-desc:last-child { margin-bottom: 0; }
+
   .card-actions {
     display: flex;
     gap: 0.5rem;
     align-items: center;
-    flex-wrap: wrap;
   }
 
   .btn-apply {
@@ -285,154 +278,6 @@ function getHTML(): string {
 
   .btn-apply:hover { background: var(--blue-dark); }
 
-  .btn-edit, .btn-delete {
-    background: none;
-    border: 1px solid var(--light-gray);
-    padding: 0.35rem 0.7rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.8rem;
-    transition: all 0.2s;
-  }
-
-  .btn-edit:hover { border-color: var(--blue); color: var(--blue); }
-  .btn-delete:hover { border-color: var(--crimson); color: var(--crimson); }
-
-  .admin-actions { display: none; }
-  .admin-mode .admin-actions { display: flex; gap: 0.5rem; }
-
-  /* Add button */
-  .add-scholarship-bar {
-    display: none;
-    margin-bottom: 1rem;
-  }
-
-  .admin-mode .add-scholarship-bar { display: block; }
-
-  .btn-add {
-    background: var(--crimson);
-    color: var(--white);
-    border: none;
-    padding: 0.6rem 1.2rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: background 0.2s;
-    width: 100%;
-  }
-
-  .btn-add:hover { background: var(--crimson-dark); }
-
-  /* Modal */
-  .modal-backdrop {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 100;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
-  }
-
-  .modal-backdrop.active { display: flex; }
-
-  .modal {
-    background: var(--white);
-    border-radius: 12px;
-    padding: 1.75rem;
-    width: 100%;
-    max-width: 520px;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  }
-
-  .modal h2 {
-    font-size: 1.15rem;
-    margin-bottom: 1rem;
-    color: var(--crimson);
-  }
-
-  .form-group {
-    margin-bottom: 0.85rem;
-  }
-
-  .form-group label {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 600;
-    margin-bottom: 0.25rem;
-    color: #333;
-  }
-
-  .form-group input,
-  .form-group textarea {
-    width: 100%;
-    padding: 0.5rem 0.7rem;
-    border: 1px solid var(--light-gray);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-family: inherit;
-    transition: border-color 0.2s;
-  }
-
-  .form-group input:focus,
-  .form-group textarea:focus {
-    outline: none;
-    border-color: var(--blue);
-    box-shadow: 0 0 0 3px rgba(0,118,165,0.1);
-  }
-
-  .form-group textarea { resize: vertical; min-height: 80px; }
-
-  .modal-actions {
-    display: flex;
-    gap: 0.5rem;
-    justify-content: flex-end;
-    margin-top: 1rem;
-  }
-
-  .btn-modal {
-    padding: 0.5rem 1.2rem;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
-    transition: all 0.2s;
-  }
-
-  .btn-save { background: var(--crimson); color: var(--white); }
-  .btn-save:hover { background: var(--crimson-dark); }
-  .btn-cancel { background: var(--light-gray); color: #333; }
-  .btn-cancel:hover { background: var(--dark-gray); color: var(--white); }
-
-  /* Password modal */
-  .password-input {
-    width: 100%;
-    padding: 0.6rem 0.8rem;
-    border: 1px solid var(--light-gray);
-    border-radius: 6px;
-    font-size: 0.95rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .password-input:focus {
-    outline: none;
-    border-color: var(--crimson);
-    box-shadow: 0 0 0 3px rgba(171,12,47,0.1);
-  }
-
-  .error-msg {
-    color: var(--crimson);
-    font-size: 0.8rem;
-    margin-bottom: 0.5rem;
-    display: none;
-  }
-
-  /* Footer */
   footer {
     text-align: center;
     padding: 2rem 1rem;
@@ -440,7 +285,6 @@ function getHTML(): string {
     font-size: 0.8rem;
   }
 
-  /* Loading */
   .loading {
     text-align: center;
     padding: 3rem;
@@ -473,18 +317,15 @@ function getHTML(): string {
         <p>Resources for Native &amp; Indigenous Students at LMU</p>
       </div>
     </div>
-    <button class="admin-toggle" onclick="toggleAdmin()">Admin</button>
   </div>
 </header>
 
 <main>
   <p class="intro">
-    Below is a curated list of scholarships available to American Indian, Alaska Native, and Indigenous students. Click "Apply" to visit each scholarship's application page.
+    Below is a curated list of scholarships available to American Indian, Alaska Native, and Indigenous students.
+    Click &ldquo;Apply&rdquo; to visit each scholarship&rsquo;s application page.<br>
+    <a href="https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit" target="_blank" rel="noopener">Suggest an edit</a>
   </p>
-
-  <div class="add-scholarship-bar">
-    <button class="btn-add" onclick="openAdd()">+ Add Scholarship</button>
-  </div>
 
   <div id="scholarships">
     <div class="loading">Loading scholarships...</div>
@@ -495,56 +336,7 @@ function getHTML(): string {
   Loyola Marymount University &mdash; Indigenous Scholarship Portal
 </footer>
 
-<!-- Password Modal -->
-<div class="modal-backdrop" id="passwordModal">
-  <div class="modal">
-    <h2>Admin Login</h2>
-    <p style="font-size:0.9rem;color:#555;margin-bottom:1rem;">Enter the admin password to manage scholarships.</p>
-    <input type="password" class="password-input" id="passwordInput" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()" />
-    <div class="error-msg" id="loginError">Incorrect password. Please try again.</div>
-    <div class="modal-actions">
-      <button class="btn-modal btn-cancel" onclick="closeModal('passwordModal')">Cancel</button>
-      <button class="btn-modal btn-save" onclick="doLogin()">Login</button>
-    </div>
-  </div>
-</div>
-
-<!-- Edit/Add Modal -->
-<div class="modal-backdrop" id="editModal">
-  <div class="modal">
-    <h2 id="editTitle">Add Scholarship</h2>
-    <form id="editForm" onsubmit="return saveScholarship(event)">
-      <input type="hidden" id="editId" />
-      <div class="form-group">
-        <label for="editName">Scholarship Name</label>
-        <input type="text" id="editName" required />
-      </div>
-      <div class="form-group">
-        <label for="editDeadline">Deadline</label>
-        <input type="text" id="editDeadline" placeholder="e.g. March 31, 2026" />
-      </div>
-      <div class="form-group">
-        <label for="editAmount">Amount</label>
-        <input type="text" id="editAmount" placeholder="e.g. Up to $5,000" />
-      </div>
-      <div class="form-group">
-        <label for="editDesc">Description</label>
-        <textarea id="editDesc"></textarea>
-      </div>
-      <div class="form-group">
-        <label for="editUrl">Application URL</label>
-        <input type="url" id="editUrl" placeholder="https://..." />
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn-modal btn-cancel" onclick="closeModal('editModal')">Cancel</button>
-        <button type="submit" class="btn-modal btn-save">Save</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <script>
-let adminToken = null;
 let scholarships = [];
 
 async function loadScholarships() {
@@ -557,43 +349,8 @@ async function loadScholarships() {
   }
 }
 
-function render() {
-  const el = document.getElementById('scholarships');
-  if (scholarships.length === 0) {
-    el.innerHTML = '<div class="empty-state">No scholarships listed yet.</div>';
-    return;
-  }
-  el.innerHTML = sortScholarships(scholarships).map(s => \`
-    <div class="scholarship-card\${isPast(s.deadline) ? ' past-deadline' : ''}">
-      <div class="card-header">
-        <h2>\${esc(s.name)}</h2>
-      </div>
-      <div class="card-meta">
-        \${s.deadline ? \`<span class="deadline">&#128197; \${esc(s.deadline)}</span>\` : ''}
-        \${s.amount ? \`<span class="amount">&#128176; \${esc(s.amount)}</span>\` : ''}
-      </div>
-      <p class="card-desc">\${esc(s.description)}</p>
-      <div class="card-actions">
-        \${s.apply_url ? \`<a href="\${esc(s.apply_url)}" target="_blank" rel="noopener" class="btn-apply">Apply &rarr;</a>\` : ''}
-        <div class="admin-actions">
-          <button class="btn-edit" onclick="openEdit(\${s.id})">Edit</button>
-          <button class="btn-delete" onclick="doDelete(\${s.id})">Delete</button>
-        </div>
-      </div>
-    </div>
-  \`).join('');
-}
-
-function esc(str) {
-  if (!str) return '';
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
-}
-
 function parseDeadline(dl) {
   if (!dl || dl.toLowerCase() === 'varies') return null;
-  // Try to extract a date from strings like "March 31, 2026" or "May 31, 2026 (rolling after...)"
   const match = dl.match(/([A-Za-z]+ \\d{1,2},? \\d{4})/);
   if (match) {
     const d = new Date(match[1]);
@@ -612,13 +369,11 @@ function isPast(dl) {
 
 function sortScholarships(list) {
   return list.slice().sort((a, b) => {
-    const da = parseDeadline(a.deadline);
-    const db = parseDeadline(b.deadline);
     const pa = isPast(a.deadline);
     const pb = isPast(b.deadline);
-    // Past deadlines go to the bottom
     if (pa !== pb) return pa ? 1 : -1;
-    // Nulls (Varies) go after dated items
+    const da = parseDeadline(a.deadline);
+    const db = parseDeadline(b.deadline);
     if (da && !db) return -1;
     if (!da && db) return 1;
     if (!da && !db) return 0;
@@ -626,120 +381,34 @@ function sortScholarships(list) {
   });
 }
 
-function toggleAdmin() {
-  if (adminToken) {
-    adminToken = null;
-    document.body.classList.remove('admin-mode');
-    document.querySelector('.admin-toggle').textContent = 'Admin';
+function esc(str) {
+  if (!str) return '';
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function render() {
+  const el = document.getElementById('scholarships');
+  if (scholarships.length === 0) {
+    el.innerHTML = '<div class="empty-state">No scholarships listed yet.</div>';
     return;
   }
-  openModal('passwordModal');
-  document.getElementById('passwordInput').value = '';
-  document.getElementById('loginError').style.display = 'none';
-  setTimeout(() => document.getElementById('passwordInput').focus(), 100);
+  el.innerHTML = sortScholarships(scholarships).map(s => \`
+    <div class="scholarship-card\${isPast(s.deadline) ? ' past-deadline' : ''}">
+      <div class="card-header">
+        <h2>\${esc(s.name)}</h2>
+      </div>
+      <div class="card-meta">
+        \${s.deadline ? \`<span class="deadline">&#128197; \${esc(s.deadline)}</span>\` : ''}
+        \${s.amount ? \`<span class="amount">&#128176; \${esc(s.amount)}</span>\` : ''}
+      </div>
+      \${s.eligibility ? \`<p class="card-desc">\${esc(s.eligibility)}</p>\` : ''}
+      \${s.notes ? \`<p class="card-desc" style="font-size:0.83rem;color:#666;">\${esc(s.notes)}</p>\` : ''}
+      \${s.apply_url ? \`<div class="card-actions"><a href="\${esc(s.apply_url)}" target="_blank" rel="noopener" class="btn-apply">Apply &rarr;</a></div>\` : ''}
+    </div>
+  \`).join('');
 }
-
-async function doLogin() {
-  const pw = document.getElementById('passwordInput').value;
-  try {
-    const res = await fetch('/api/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    });
-    if (res.ok) {
-      adminToken = pw;
-      document.body.classList.add('admin-mode');
-      document.querySelector('.admin-toggle').textContent = 'Logout';
-      closeModal('passwordModal');
-    } else {
-      document.getElementById('loginError').style.display = 'block';
-    }
-  } catch {
-    document.getElementById('loginError').style.display = 'block';
-  }
-}
-
-function openModal(id) { document.getElementById(id).classList.add('active'); }
-function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-
-function openAdd() {
-  document.getElementById('editTitle').textContent = 'Add Scholarship';
-  document.getElementById('editId').value = '';
-  document.getElementById('editName').value = '';
-  document.getElementById('editDeadline').value = '';
-  document.getElementById('editAmount').value = '';
-  document.getElementById('editDesc').value = '';
-  document.getElementById('editUrl').value = '';
-  openModal('editModal');
-}
-
-function openEdit(id) {
-  const s = scholarships.find(x => x.id === id);
-  if (!s) return;
-  document.getElementById('editTitle').textContent = 'Edit Scholarship';
-  document.getElementById('editId').value = s.id;
-  document.getElementById('editName').value = s.name || '';
-  document.getElementById('editDeadline').value = s.deadline || '';
-  document.getElementById('editAmount').value = s.amount || '';
-  document.getElementById('editDesc').value = s.description || '';
-  document.getElementById('editUrl').value = s.apply_url || '';
-  openModal('editModal');
-}
-
-async function saveScholarship(e) {
-  e.preventDefault();
-  const id = document.getElementById('editId').value;
-  const body = {
-    name: document.getElementById('editName').value,
-    deadline: document.getElementById('editDeadline').value,
-    amount: document.getElementById('editAmount').value,
-    description: document.getElementById('editDesc').value,
-    apply_url: document.getElementById('editUrl').value,
-  };
-
-  const url = id ? \`/api/scholarships/\${id}\` : '/api/scholarships';
-  const method = id ? 'PUT' : 'POST';
-
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + adminToken,
-      },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      closeModal('editModal');
-      await loadScholarships();
-    } else {
-      alert('Failed to save. Are you still logged in?');
-    }
-  } catch {
-    alert('Network error. Please try again.');
-  }
-}
-
-async function doDelete(id) {
-  if (!confirm('Delete this scholarship?')) return;
-  try {
-    await fetch(\`/api/scholarships/\${id}\`, {
-      method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + adminToken },
-    });
-    await loadScholarships();
-  } catch {
-    alert('Failed to delete.');
-  }
-}
-
-// Close modals on backdrop click
-document.querySelectorAll('.modal-backdrop').forEach(el => {
-  el.addEventListener('click', e => {
-    if (e.target === el) closeModal(el.id);
-  });
-});
 
 loadScholarships();
 </script>

@@ -5,11 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "preview": "wrangler dev --remote",
-    "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute scholarships-db --file=src/schema.sql",
-    "db:migrate:local": "wrangler d1 execute scholarships-db --file=src/schema.sql --local",
-    "db:seed": "wrangler d1 execute scholarships-db --file=src/seed.sql",
-    "db:seed:local": "wrangler d1 execute scholarships-db --file=src/seed.sql --local"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
