@@ -1,5 +1,10 @@
 const SHEET_ID = "1AkIGIxjUaDhnDb582v3RMOBdys69BSVKNuqaSkBRRTU";
-const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`;
+// Published-to-web CSV. The /gviz/tq endpoint serves an anti-abuse interstitial to
+// datacenter IPs (including Workers), so it returns HTTP 200 with a non-CSV body.
+const PUB_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRtI_NwtAz6U59DAbFOikVsEXwfNHjfT8i-SCKt2Lhl9myVRpvE4s2ZHVVnC1geHH8XPaSaV7TWtI5/pub?gid=0&single=true&output=csv";
+const EXPORT_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
+const HEADER_MARKER = "scholarship name";
 const CACHE_TTL = 300; // 5 minutes
 
 interface Scholarship {
@@ -54,7 +59,14 @@ function parseCSV(csv: string): string[][] {
 
 function parseSheet(csv: string): Scholarship[] {
   const rows = parseCSV(csv);
-  if (rows.length < 2) return [];
+  // A missing or unrecognized header row means we got something other than the
+  // sheet (interstitial, sign-in page, error). Fail loudly rather than reporting
+  // an empty list, which is indistinguishable from a sheet with no entries.
+  // A valid header with no data rows below it is a genuinely empty sheet.
+  if (rows.length < 1) throw new Error("Sheet response was empty");
+  if (!(rows[0][0] || "").trim().toLowerCase().startsWith(HEADER_MARKER)) {
+    throw new Error("Sheet response did not start with the expected header row");
+  }
   // Skip header row
   return rows.slice(1)
     .map((row) => ({
@@ -68,13 +80,25 @@ function parseSheet(csv: string): Scholarship[] {
     .filter((s) => s.name.length > 0);
 }
 
-async function fetchScholarships(): Promise<Scholarship[]> {
-  const res = await fetch(CSV_URL, {
+async function fetchFrom(url: string): Promise<Scholarship[]> {
+  const res = await fetch(url, {
     cf: { cacheTtl: CACHE_TTL, cacheEverything: true },
   });
-  if (!res.ok) throw new Error("Failed to fetch sheet");
-  const csv = await res.text();
-  return parseSheet(csv);
+  if (!res.ok) throw new Error(`Sheet fetch returned HTTP ${res.status}`);
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("csv")) {
+    throw new Error(`Sheet fetch returned content-type "${contentType}"`);
+  }
+  return parseSheet(await res.text());
+}
+
+async function fetchScholarships(): Promise<Scholarship[]> {
+  try {
+    return await fetchFrom(PUB_CSV_URL);
+  } catch (err) {
+    console.log(`Published CSV failed, trying export endpoint: ${err}`);
+    return await fetchFrom(EXPORT_CSV_URL);
+  }
 }
 
 export default {
@@ -90,7 +114,8 @@ export default {
             "Cache-Control": `public, max-age=${CACHE_TTL}`,
           },
         });
-      } catch {
+      } catch (err) {
+        console.log(`Failed to load scholarships: ${err}`);
         return new Response(JSON.stringify({ error: "Failed to load scholarships" }), {
           status: 502,
           headers: { "Content-Type": "application/json" },
@@ -332,13 +357,23 @@ function getHTML(): string {
 <script>
 let scholarships = [];
 
+function showError() {
+  document.getElementById('scholarships').innerHTML =
+    '<div class="empty-state">We could not load the scholarship list right now. ' +
+    'Please try again shortly, or visit the ' +
+    '<a href="https://www.lmu.edu/dei/indigenous/">LMU Indigenous Hub</a> for help.</div>';
+}
+
 async function loadScholarships() {
   try {
     const res = await fetch('/api/scholarships');
-    scholarships = await res.json();
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error('Unexpected response');
+    scholarships = data;
     render();
   } catch (e) {
-    document.getElementById('scholarships').innerHTML = '<div class="empty-state">Failed to load scholarships.</div>';
+    showError();
   }
 }
 
